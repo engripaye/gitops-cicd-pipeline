@@ -1,0 +1,12 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sample-project
+  namespace: argocd
+spec:
+  description: "Apps for sample project"
+  destinations:
+    - namespace: staging
+      server: https://kubernetes.default.svc
+  sourceRepos:
+    - 'git@github.com:your-org/apps-config.git'

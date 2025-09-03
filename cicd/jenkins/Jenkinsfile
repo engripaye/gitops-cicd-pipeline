@@ -1,0 +1,44 @@
+pipeline {
+  agent any
+  environment {
+    REGISTRY = 'registry.example.com'
+    IMAGE_NAME = 'sample-app'
+    CHART_DIR = 'cicd/charts/sample-app'
+    GITOPS_REPO = 'git@github.com:your-org/apps-config.git'
+    GITOPS_BRANCH = 'staging'
+  }
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+    stage('Unit Tests') {
+      steps { sh 'mvn test || true' } // adjust to your build tool
+    }
+    stage('Build Image') {
+      steps {
+        sh "./tools/build-image.sh ${REGISTRY}/${IMAGE_NAME} ${env.BUILD_NUMBER}"
+      }
+    }
+    stage('Push Image') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'registry-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+          sh 'docker login -u $USER -p $PASS ${REGISTRY}'
+          sh "docker push ${REGISTRY}/${IMAGE_NAME}:${env.BUILD_NUMBER}"
+        }
+      }
+    }
+    stage('Package Chart & Update GitOps') {
+      steps {
+        dir(CHART_DIR) {
+          sh 'helm lint .'
+          sh "helm package . --version 0.1.${env.BUILD_NUMBER} --destination ../../charts-repo"
+        }
+        // Update apps-config repo with new image tag in values.yaml
+        sh "git clone ${GITOPS_REPO} apps-config && cd apps-config && \
+            yq e -i '.image.tag = \"${env.BUILD_NUMBER}\"' staging/sample-app/values.yaml && \
+            git add . && git commit -m 'ci: promote ${IMAGE_NAME}:${env.BUILD_NUMBER} to staging' || true && \
+            git push origin ${GITOPS_BRANCH} || true"
+      }
+    }
+  }
+}
